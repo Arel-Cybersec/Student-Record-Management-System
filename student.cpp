@@ -3,7 +3,9 @@
 #include <iomanip>
 #include <fstream>
 #include <string>
-#include <limits>
+#include <sstream>
+#include <cstdio>
+#include <cstdlib>
 using namespace std;
 
 struct Student {
@@ -47,21 +49,21 @@ void boxRow(string text, string color = "") {
 }
 
 // ---------- input helpers ----------
+// reads a whole line and accepts it only if it is exactly one number, so "12abc" or "1.5" for an int is rejected
 template <typename T>
 T readNum(string prompt) {
-    T x;
     while (true) {
         cout << prompt;
-        if (cin >> x) {
-            cin.ignore(numeric_limits<streamsize>::max(), '\n');
-            return x;
-        }
-        if (cin.eof()) exit(0);
+        string line;
+        if (!getline(cin, line)) exit(0);           // input closed
+        istringstream in(line);
+        T x;
+        if (in >> x && (in >> ws).eof()) return x;
         err("Invalid number, try again.");
-        cin.clear();
-        cin.ignore(numeric_limits<streamsize>::max(), '\n');
     }
 }
+
+bool validCgpa(float c) { return c >= 0 && c <= 10; }
 
 string readLine(string prompt) {
     string s;
@@ -249,29 +251,66 @@ void showMenu() {
 
 // ---------- file handling ----------
 // line format: roll cgpa name   (name last so it can contain spaces)
-void save() {
-    ofstream out(FILE_NAME);
+// writes a temporary file first and then swaps it in, so a failed write never destroys the old file
+bool save() {
+    string tmp = FILE_NAME + ".tmp";
+    ofstream out(tmp);
     for (Student* p = head; p != nullptr; p = p->next)
         out << p->roll << " " << p->cgpa << " " << p->name << "\n";
+    out.close();
+    bool saved = out.good();
+    if (saved && rename(tmp.c_str(), FILE_NAME.c_str()) != 0) {
+        remove(FILE_NAME.c_str());                  // Windows cannot rename over an existing file
+        saved = rename(tmp.c_str(), FILE_NAME.c_str()) == 0;
+    }
+    if (!saved) {
+        remove(tmp.c_str());
+        err("Could not save to " + FILE_NAME + ". Changes are only in memory.");
+    }
+    return saved;
 }
 
-void load() {
+// skips invalid lines instead of stopping, and keeps a copy of the original file if any were skipped
+// returns the number of skipped lines
+int load() {
     ifstream in(FILE_NAME);
-    int roll;
-    float cgpa;
-    string name;
-    while (in >> roll >> cgpa && getline(in >> ws, name))
-        insertEnd(roll, name, cgpa);
+    string line;
+    int lineNo = 0, skipped = 0;
+    while (getline(in, line)) {
+        lineNo++;
+        if (!line.empty() && line.back() == '\r') line.pop_back();     // file saved on Windows
+        if (line.find_first_not_of(" \t") == string::npos) continue;   // blank line
+        istringstream ls(line);
+        int roll;
+        float cgpa;
+        string name;
+        bool valid = ls >> roll >> cgpa && getline(ls >> ws, name)
+                     && roll > 0 && validCgpa(cgpa) && search(roll) == nullptr;
+        if (valid) insertEnd(roll, name, cgpa);
+        else {
+            err("Line " + to_string(lineNo) + " of " + FILE_NAME + " is invalid and was skipped.");
+            skipped++;
+        }
+    }
+    if (skipped > 0) {
+        in.clear();
+        in.seekg(0);
+        ofstream backup(FILE_NAME + ".bak");
+        backup << in.rdbuf();
+        err("The original file was copied to " + FILE_NAME + ".bak before any changes.");
+    }
+    return skipped;
 }
 
 // ---------- menu actions ----------
 void addStudent() {
     int roll = readNum<int>(" Roll no      : ");
+    if (roll <= 0) { err("Roll number must be a positive number."); return; }
     if (search(roll) != nullptr) { err("Roll " + to_string(roll) + " already exists."); return; }
     string name = readLine(" Name         : ");
     if (name.empty()) { err("Name cannot be empty."); return; }
     float cgpa = readNum<float>(" CGPA (0-10)  : ");
-    if (cgpa < 0 || cgpa > 10) { err("CGPA must be between 0 and 10."); return; }
+    if (!validCgpa(cgpa)) { err("CGPA must be between 0 and 10."); return; }
 
     cout << "\n Insert where?  [1] End   [2] Beginning   [3] Position\n";
     switch (readNum<int>(" Choice: ")) {
@@ -301,7 +340,7 @@ void updateStudent() {
     if (s == nullptr) { err("Not found."); return; }
     string name = readLine(" New name (Enter to keep '" + s->name + "'): ");
     float cgpa = readNum<float>(" New CGPA (0-10): ");
-    if (cgpa < 0 || cgpa > 10) { err("CGPA must be between 0 and 10. Nothing changed."); return; }
+    if (!validCgpa(cgpa)) { err("CGPA must be between 0 and 10. Nothing changed."); return; }
     if (!name.empty()) s->name = name;     // change only after all input is valid
     s->cgpa = cgpa;
     ok("Updated.");
@@ -318,7 +357,7 @@ void removeStudent() {
 }
 
 int main() {
-    load();
+    if (load() > 0) pauseScreen();      // let the user read the warnings before the screen clears
     while (true) {
         clearScreen();
         showMenu();
@@ -340,7 +379,11 @@ int main() {
                 break;
             case 9: showStats(); break;
             case 10: visualize(); break;
-            case 0: save(); freeAll(); ok("Saved. Goodbye!"); return 0;
+            case 0:
+                if (!save()) break;         // stay open so the data in memory is not lost
+                freeAll();
+                ok("Saved. Goodbye!");
+                return 0;
             default: err("Invalid choice.");
         }
         save();

@@ -1,3 +1,6 @@
 student
 *.exe
 *.o
+*.tmp
+*.bak
+*.mp4

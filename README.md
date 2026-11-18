@@ -165,7 +165,13 @@ Records are stored in `students.txt`, one student per line, in the order roll nu
 103 9.25 Kabir Joshi
 ```
 
-The name comes last so that it can contain spaces. The file is rewritten after every action, so closing the terminal by accident does not lose data.
+The name comes last so that it can contain spaces. The file is saved after every action, so closing the terminal by accident does not lose data. Run the program from the folder that contains `students.txt`, since the file is looked up in the current folder.
+
+The file is handled safely:
+
+- **Saving** writes to a temporary file first and then replaces `students.txt`, so a failed write never destroys the existing records. If saving fails, the program says so and stays open.
+- **Loading** skips any invalid line (a missing field, a CGPA outside 0 to 10, a duplicate or non-positive roll number) and reports its line number. The other records still load, and the original file is copied to `students.txt.bak` before anything is overwritten.
+- Files saved on Windows, with CRLF line endings, load correctly.
 
 ---
 
@@ -245,7 +251,8 @@ Sorting swaps the **data** inside nodes and leaves the links untouched, so `head
 | Delete | O(n) | Must find the node and its predecessor |
 | Reverse | O(n) | Flips each pointer once, using O(1) extra memory |
 | Sort | O(n²) | Compares every pair of nodes |
-| Display, statistics, save, load | O(n) | One pass over the list or the file |
+| Display, statistics, save | O(n) | One pass over the list |
+| Load | O(n²) | Each line is checked against the records already loaded for a duplicate roll number |
 
 Space complexity is O(n): one node per student.
 
@@ -255,8 +262,9 @@ Space complexity is O(n): one node per student.
 
 | Input | Result |
 |---|---|
-| Letters where a number is expected | `Invalid number, try again.` and the prompt repeats |
+| Anything other than a single number, such as `abc`, `12abc` or `1.5` for a whole number | `Invalid number, try again.` and the prompt repeats |
 | Unknown menu option | `Invalid choice.` |
+| Roll number of 0 or below | `Roll number must be a positive number.` |
 | Roll number that already exists | Rejected, and the message names the roll number |
 | Empty name | `Name cannot be empty.` |
 | CGPA outside 0 to 10 | `CGPA must be between 0 and 10.` and the record is left unchanged |
@@ -271,9 +279,19 @@ Space complexity is O(n): one node per student.
 Student-Record-Management-System/
 ├── student.cpp     # the complete program
 ├── students.txt    # sample records, loaded at start-up
+├── tests/
+│   └── run_tests.sh  # automated tests
 ├── README.md
 └── LICENSE
 ```
+
+To run the tests:
+
+```bash
+bash tests/run_tests.sh
+```
+
+The script builds the program, runs it with scripted input in temporary folders and checks the output and the saved file. It covers bad lines in the data file, Windows line endings, invalid input, saving, updating, deleting, reversing and statistics.
 
 Inside `student.cpp`:
 
@@ -282,7 +300,7 @@ Inside `student.cpp`:
 | Linked list operations | `insertEnd`, `insertFront`, `insertAt`, `search`, `deleteStudent`, `reverseList`, `sortList`, `countStudents`, `freeAll` |
 | Display | `display`, `printHeader`, `printRow`, `printFooter`, `visualize`, `showStats`, `showMenu` |
 | File handling | `save`, `load` |
-| Input | `readNum`, `readLine` |
+| Input | `readNum`, `readLine`, `validCgpa` |
 | Menu actions | `addStudent`, `searchStudent`, `updateStudent`, `removeStudent`, `main` |
 
 ---
